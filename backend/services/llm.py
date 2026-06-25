@@ -225,7 +225,6 @@ def analyze_memory_content(title: str, content: str) -> dict:
                 data = response.json()
                 text_content = data["choices"][0]["message"]["content"]
                 parsed = json.loads(text_content)
-                # Ensure fields are present and typed correctly
                 return {
                     "summary": str(parsed.get("summary", default_response["summary"])),
                     "tags": list(parsed.get("tags", default_response["tags"])),
@@ -286,7 +285,6 @@ def analyze_memory_content(title: str, content: str) -> dict:
                 tags.append("webpage")
                 
             summary = f"Synthesized webpage memory for '{title or 'Untitled'}'. Explores key content regarding " + ", ".join(tags).lower() + "."
-            # Deterministic importance score between 20 and 100
             importance_score = min(100, max(20, (len(title or "") * 3 + len(tags) * 12) % 100))
             
             return {
@@ -300,3 +298,120 @@ def analyze_memory_content(title: str, content: str) -> dict:
         
     return default_response
 
+
+def generate_user_insights(memories: List[Dict[str, Any]]) -> str:
+    """
+    Analyzes the user's saved memory summaries and tags to identify their core
+    interests and current research focus.
+    """
+    if not memories:
+        return "No memories available to analyze. Please add some webpage memories."
+
+    # 1. Format the memory history as a text block
+    history_items = []
+    for idx, m in enumerate(memories, 1):
+        tags_str = ", ".join(m.get("tags", []))
+        item = (
+            f"Webpage #{idx}: {m.get('title', 'Untitled')}\n"
+            f"Tags: {tags_str}\n"
+            f"Summary: {m.get('summary', 'No summary available.')}\n"
+        )
+        history_items.append(item)
+    history_context = "\n".join(history_items)
+
+    system_prompt = (
+        "You are a personal user profiling intelligence agent.\n"
+        "Your task is to analyze the user's saved pages, summaries, and tags to detect their core interests and active research areas.\n"
+        "Generate a brief natural language summary (1-2 sentences) of their profile.\n"
+        "Instructions:\n"
+        "- Do NOT start with 'The user is...' or 'Based on the context...'. State the interests directly.\n"
+        "- Mention specific themes from their reading (e.g. AI startups, programming, cooking methods, etc.).\n"
+        "- Keep it professional, conversational, and direct.\n"
+    )
+
+    user_message = (
+        f"Saved Webpages History:\n"
+        f"=======================\n"
+        f"{history_context}\n"
+        f"=======================\n"
+    )
+
+    if LLM_PROVIDER == "openai":
+        if not OPENAI_API_KEY:
+            return "Unable to generate insights: OPENAI_API_KEY not configured."
+            
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": OPENAI_CHAT_MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message}
+            ],
+            "temperature": 0.4
+        }
+        try:
+            response = httpx.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=30.0
+            )
+            if response.status_code == 200:
+                return response.json()["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            return f"Error analyzing interests via OpenAI: {str(e)}"
+
+    elif LLM_PROVIDER == "gemini":
+        if not GEMINI_API_KEY:
+            return "Unable to generate insights: GEMINI_API_KEY not configured."
+            
+        headers = {
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "text": f"{system_prompt}\n\n{user_message}"
+                        }
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.4
+            }
+        }
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_CHAT_MODEL}:generateContent?key={GEMINI_API_KEY}"
+        try:
+            response = httpx.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=30.0
+            )
+            if response.status_code == 200:
+                return response.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except Exception as e:
+            return f"Error analyzing interests via Gemini: {str(e)}"
+
+    # Fallback/Mock provider logic
+    unique_tags = set()
+    for m in memories:
+        for tag in m.get("tags", []):
+            if tag.lower() != "webpage":
+                unique_tags.add(tag)
+
+    if not unique_tags:
+        return "Actively exploring general web articles and saving bookmarks for general reference."
+        
+    tags_list = list(unique_tags)
+    if len(tags_list) == 1:
+        return f"Currently focused on researching content related to {tags_list[0]}."
+    elif len(tags_list) == 2:
+        return f"Actively exploring and comparing topics in {tags_list[0]} and {tags_list[1]}."
+    else:
+        return f"Actively researching topics in {', '.join(tags_list[:-1])}, and {tags_list[-1]}."

@@ -31,3 +31,12 @@ class Embedding(Base):
 
     memory = relationship("Memory", back_populates="embedding")
 
+
+class Insight(Base):
+    __tablename__ = "insights"
+
+    id = Column(Integer, primary_key=True, index=True)
+    summary = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
