@@ -4,9 +4,12 @@
   "version": "1.0.0",
   "description": "Automatically captures and saves webpages you visit to your Internet Memory PostgreSQL database.",
   "permissions": [
-    "tabs"
+    "tabs",
+    "storage"
   ],
-  "action": {},
+  "action": {
+    "default_popup": "popup.html"
+  },
   "background": {
     "service_worker": "background.js"
   },

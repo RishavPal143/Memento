@@ -2,12 +2,17 @@
 
 /**
  * Updates the extension's badge UI to indicate whether the save was successful.
- * Displays "✓" in green for success, or "Err" in red for failure, resetting after 2.5 seconds.
+ * Supports custom text overrides (e.g. "Low" for skipped pages).
  */
-async function showBadgeFeedback(success) {
+async function showBadgeFeedback(success, textOverride = null) {
   try {
-    const text = success ? "✓" : "Err";
-    const color = success ? "#10B981" : "#EF4444"; // Emerald green vs Coral red
+    const text = textOverride || (success ? "✓" : "Err");
+    
+    // Choose badge color: green for success, yellow/orange for skipped low importance, red for errors
+    let color = success ? "#10B981" : "#EF4444";
+    if (textOverride === "Low") {
+      color = "#F59E0B"; // Amber yellow
+    }
 
     await chrome.action.setBadgeText({ text: text });
     await chrome.action.setBadgeBackgroundColor({ color: color });
@@ -25,8 +30,9 @@ async function showBadgeFeedback(success) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "SAVE_MEMORY") {
     const pageData = message.data;
+    const isManual = message.manual === true;
 
-    // Use an asynchronous IIFE to handle the fetch request to bypass service worker sync constraints
+    // Use an asynchronous IIFE to handle the async work
     (async () => {
       try {
         console.log("[Internet Memory] Sending API request to save:", pageData.url);
@@ -51,14 +57,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const savedRecord = await response.json();
         console.log("[Internet Memory] API save response success:", savedRecord);
 
+        // Check if user enabled "Save Only Important" pages AND this is an auto-saved page
+        const settings = await chrome.storage.local.get({ onlyImportant: false });
+        if (settings.onlyImportant && !isManual && savedRecord.importance_score !== undefined && savedRecord.importance_score < 60) {
+          console.log(`[Internet Memory] Discarding memory with low importance score (${savedRecord.importance_score} < 60)`);
+          
+          // Delete from database
+          const deleteRes = await fetch(`http://localhost:8000/memory/${savedRecord.id}`, {
+            method: "DELETE"
+          });
+          
+          if (deleteRes.ok) {
+            console.log("[Internet Memory] Low importance memory deleted from DB.");
+          } else {
+            console.warn("[Internet Memory] Failed to delete low importance memory.");
+          }
+
+          // Show yellow "Low" badge feedback
+          await showBadgeFeedback(false, "Low");
+          sendResponse({ success: true, status: "ignored", record: savedRecord });
+          return;
+        }
+
         // Flash green badge feedback
-        await showBadgeFeedback(true);
-        sendResponse({ success: true, record: savedRecord });
+        await showBadgeFeedback(true, "✓");
+        sendResponse({ success: true, status: "saved", record: savedRecord });
       } catch (err) {
         console.error("[Internet Memory] Error in background API request:", err);
 
         // Flash red error badge feedback
-        await showBadgeFeedback(false);
+        await showBadgeFeedback(false, "Err");
         sendResponse({ success: false, error: err.message });
       }
     })();

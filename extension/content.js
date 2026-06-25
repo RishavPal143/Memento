@@ -42,31 +42,55 @@
     return textContent.replace(/\s+/g, " ").trim();
   }
 
-  // Gather metadata and content from the page
-  const pageData = {
-    title: document.title || window.location.hostname || "Untitled Page",
-    url: window.location.href,
-    content: extractPageText()
-  };
+  // Helper function to extract page text and send save request to background
+  function handleSavePage(manual = false, callback = null) {
+    const pageData = {
+      title: document.title || window.location.hostname || "Untitled Page",
+      url: window.location.href,
+      content: extractPageText()
+    };
 
-  // Filter for HTTP and HTTPS protocols to avoid attempting to save internal chrome pages or file URLs
-  if (pageData.url.startsWith("http://") || pageData.url.startsWith("https://")) {
-    console.log("[Internet Memory] Capturing memory for:", pageData.url);
-    
-    // Send the captured data to the background service worker
-    chrome.runtime.sendMessage({
-      action: "SAVE_MEMORY",
-      data: pageData
-    }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.warn("[Internet Memory] Message failed (normal if background service worker is initializing):", chrome.runtime.lastError.message);
-        return;
-      }
-      if (response && response.success) {
-        console.log("[Internet Memory] Memory saved successfully.");
-      } else {
-        console.error("[Internet Memory] Memory save failed:", response ? response.error : "Unknown error");
-      }
-    });
+    if (pageData.url.startsWith("http://") || pageData.url.startsWith("https://")) {
+      console.log("[Internet Memory] Sending SAVE_MEMORY action. Manual:", manual);
+      
+      chrome.runtime.sendMessage({
+        action: "SAVE_MEMORY",
+        data: pageData,
+        manual: manual
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn("[Internet Memory] Extension message failed:", chrome.runtime.lastError.message);
+          if (callback) callback({ success: false, error: chrome.runtime.lastError.message });
+          return;
+        }
+        if (callback) callback(response);
+      });
+    } else {
+      if (callback) callback({ success: false, error: "Only http:// and https:// URLs are supported." });
+    }
   }
+
+  // Auto-save on page load, if config is enabled
+  (async () => {
+    try {
+      const settings = await chrome.storage.local.get({ autoSave: true });
+      if (settings.autoSave) {
+        handleSavePage(false);
+      } else {
+        console.log("[Internet Memory] Auto-save disabled. Page capture skipped.");
+      }
+    } catch (err) {
+      console.error("[Internet Memory] Error reading storage settings:", err);
+    }
+  })();
+
+  // Listen for manual page capture messages from the popup UI
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.action === "MANUAL_SAVE") {
+      handleSavePage(true, (response) => {
+        sendResponse(response);
+      });
+      return true; // Keep message port active for asynchronous response
+    }
+  });
 })();
