@@ -22,10 +22,15 @@ class MemoryResponse(MemoryBase):
         from_attributes = True
 
 class MemorySearchResponse(BaseModel):
+    id: int
     title: Optional[str] = None
     url: str
     snippet: Optional[str] = None
     similarity_score: float
+    summary: Optional[str] = None
+    tags: Optional[List[str]] = None
+    importance_score: Optional[int] = None
+    created_at: datetime
 
     class Config:
         orm_mode = True

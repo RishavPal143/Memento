@@ -43,10 +43,15 @@ def search_memories_endpoint(q: str, limit: int = 10, db: Session = Depends(get_
             
             formatted_results.append(
                 schemas.MemorySearchResponse(
+                    id=memory.id,
                     title=memory.title,
                     url=memory.url,
                     snippet=snippet,
-                    similarity_score=similarity_score
+                    similarity_score=similarity_score,
+                    summary=memory.summary,
+                    tags=memory.tags,
+                    importance_score=memory.importance_score,
+                    created_at=memory.created_at
                 )
             )
             

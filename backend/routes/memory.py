@@ -68,3 +68,21 @@ def delete_memory(id: int, db: Session = Depends(get_db)):
             detail="Memory record not found"
         )
     return {"message": "Memory successfully deleted"}
+
+
+@router.delete("/memory")
+def delete_all_memories(db: Session = Depends(get_db)):
+    """
+    Purges all memory and embedding records from the database.
+    """
+    try:
+        db.query(models.Embedding).delete()
+        db.query(models.Memory).delete()
+        db.commit()
+        return {"message": "All memories successfully purged"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to clear database: {str(e)}"
+        )
